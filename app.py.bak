@@ -1,0 +1,185 @@
+import os, logging, threading, uuid
+from pathlib import Path
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+
+load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
+logger = logging.getLogger(__name__)
+
+UPLOAD_ROOT = Path("uploads")
+FOLDERS = {"videos": UPLOAD_ROOT/"videos", "images": UPLOAD_ROOT/"images", "texte": UPLOAD_ROOT/"texte"}
+for f in FOLDERS.values(): f.mkdir(parents=True, exist_ok=True)
+
+ALLOWED = {".mp4",".mov",".avi",".mkv",".webm",".jpg",".jpeg",".png",".gif",".webp",".bmp",
+           ".pdf",".txt",".md",".csv",".mp3",".wav",".m4a"}
+EXT_FOLDER = {
+    **{e:"videos" for e in [".mp4",".mov",".avi",".mkv",".webm"]},
+    **{e:"images" for e in [".jpg",".jpeg",".png",".gif",".webp",".bmp"]},
+    **{e:"texte"  for e in [".pdf",".txt",".md",".csv",".mp3",".wav",".m4a"]},
+}
+
+ENV_FILE = "/opt/RAG-Gemini/.env"
+app = Flask(__name__, static_folder="static")
+CORS(app)
+status: dict = {}
+
+def ingest_async(filepath, name):
+    from rag.embedder import embed_text, embed_image, embed_image_bytes
+    from rag.indexer  import upsert_batch
+    from rag.ingest   import process_file
+    status[name] = {"status":"processing","progress":0,"total":0,"error":None}
+    try:
+        chunks = list(process_file(filepath))
+        status[name]["total"] = len(chunks)
+        if not chunks:
+            status[name].update({"status":"error","error":"Aucun contenu extrait."}); return
+        batch=[]; done=0
+        for c in chunks:
+            emb=None; t=c["type"]
+            if t=="text": emb=embed_text(c["content"])
+            elif t=="image": emb=embed_image(c["content"],c.get("caption",""))
+            elif t=="image_bytes": emb=embed_image_bytes(c["content"],c.get("mime","image/jpeg"),c.get("caption",""))
+            if emb: batch.append({"id":str(uuid.uuid4()),"values":emb,"metadata":c["metadata"]})
+            done+=1; status[name]["progress"]=done
+            if len(batch)>=50: upsert_batch(batch); batch=[]
+        if batch: upsert_batch(batch)
+        status[name]["status"]="done"
+    except Exception as e:
+        status[name].update({"status":"error","error":str(e)}); logger.error(e)
+
+@app.route("/api/upload", methods=["POST"])
+def upload():
+    f=request.files.get("file")
+    if not f or not f.filename: return jsonify({"error":"Fichier manquant"}),400
+    fn=secure_filename(f.filename); ext=Path(fn).suffix.lower()
+    if ext not in ALLOWED: return jsonify({"error":f"Format non supporté : {ext}"}),400
+    folder=FOLDERS[EXT_FOLDER.get(ext,"texte")]
+    path=folder/fn; f.save(str(path))
+    threading.Thread(target=ingest_async,args=(str(path),fn),daemon=True).start()
+    return jsonify({"message":f"'{fn}' uploadé","filename":fn})
+
+@app.route("/api/ingestion-status/<fn>")
+def ingest_status(fn): return jsonify(status.get(fn,{"status":"unknown"}))
+
+@app.route("/api/query", methods=["POST"])
+def query():
+    d=request.get_json(); q=(d or {}).get("question","").strip()
+    src=(d or {}).get("source_filter", None)
+    if not q: return jsonify({"error":"Question vide"}),400
+    from rag.retriever import answer_question
+    return jsonify(answer_question(q, source_filter=src))
+
+@app.route("/api/stats")
+def stats():
+    from rag.indexer import get_index_stats
+    return jsonify(get_index_stats())
+
+@app.route("/api/files")
+def files():
+    out=[]
+    for fn,fp in FOLDERS.items():
+        for f in fp.iterdir():
+            if f.is_file():
+                out.append({"name":f.name,"folder":fn,"size_kb":round(f.stat().st_size/1024,1),
+                            "ext":f.suffix.lower(),"status":status.get(f.name,{}).get("status","unknown")})
+    return jsonify({"files":out})
+
+@app.route("/api/delete/<fn>", methods=["DELETE"])
+def delete(fn):
+    fn=secure_filename(fn)
+    for fp in FOLDERS.values():
+        p=fp/fn
+        if p.exists():
+            p.unlink()
+            from rag.indexer import delete_vectors_by_source; delete_vectors_by_source(fn)
+            status.pop(fn,None)
+            return jsonify({"message":f"'{fn}' supprimé."})
+    return jsonify({"error":"Introuvable"}),404
+
+@app.route("/api/clear", methods=["DELETE"])
+def clear_all():
+    try:
+        from rag.indexer import get_index
+        idx = get_index()
+        idx.delete(delete_all=True)
+        status.clear()
+        return jsonify({"message":"Base vectorielle vidée."})
+    except Exception as e:
+        return jsonify({"error":str(e)}),500
+
+@app.route("/api/vectors")
+def get_vectors():
+    try:
+        from rag.indexer import get_index
+        idx = get_index()
+        stats_data = idx.describe_index_stats()
+        total = stats_data.get("total_vector_count", 0)
+        if total == 0:
+            return jsonify({"vectors": [], "total": 0})
+        import random
+        dim = int(os.getenv("EMBEDDING_DIMENSION", "3072"))
+        dummy = [random.gauss(0, 0.1) for _ in range(dim)]
+        result = idx.query(vector=dummy, top_k=min(80, total), include_metadata=True)
+        vectors = []
+        for m in result.get("matches", []):
+            meta = m.get("metadata", {})
+            vectors.append({"id":m["id"],"score":m["score"],
+                "source":meta.get("source","?"),"source_type":meta.get("source_type","?"),
+                "text":meta.get("text","")[:80],"page":meta.get("page",""),
+                "timestamp":meta.get("timestamp","")})
+        return jsonify({"vectors": vectors, "total": total})
+    except Exception as e:
+        return jsonify({"error": str(e), "vectors": [], "total": 0}), 500
+
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    return jsonify({
+        "gemini_embedding_model": os.getenv("GEMINI_EMBEDDING_MODEL","models/gemini-embedding-2-preview"),
+        "gemini_llm_model":       os.getenv("GEMINI_LLM_MODEL","gemini-2.5-flash"),
+        "openrouter_model":       os.getenv("OPENROUTER_MODEL",""),
+        "pinecone_index":         os.getenv("PINECONE_INDEX_NAME","rag-multimodal"),
+        "embedding_dimension":    os.getenv("EMBEDDING_DIMENSION","3072"),
+    })
+
+@app.route("/api/config", methods=["POST"])
+def update_config():
+    d = request.get_json() or {}
+    mapping = {"gemini_llm_model":"GEMINI_LLM_MODEL","openrouter_model":"OPENROUTER_MODEL","gemini_embedding_model":"GEMINI_EMBEDDING_MODEL"}
+    updated = []
+    for key, env_key in mapping.items():
+        if key in d and d[key].strip():
+            try:
+                lines = open(ENV_FILE).readlines()
+                new_lines = []
+                found = False
+                for line in lines:
+                    if line.startswith(env_key+'='):
+                        new_lines.append(f"{env_key}={d[key].strip()}\n"); found=True
+                    else: new_lines.append(line)
+                if not found: new_lines.append(f"{env_key}={d[key].strip()}\n")
+                open(ENV_FILE,'w').writelines(new_lines)
+            except: pass
+            os.environ[env_key] = d[key].strip()
+            updated.append(env_key)
+    return jsonify({"message": f"Mis à jour : {', '.join(updated)}", "updated": updated})
+
+@app.route("/api/preview/<folder>/<filename>")
+def preview_file(folder, filename):
+    filename = secure_filename(filename)
+    folder_path = FOLDERS.get(folder)
+    if not folder_path: return jsonify({"error":"Dossier invalide"}), 404
+    return send_from_directory(str(folder_path), filename)
+
+@app.route("/")
+def index():
+    html_path = Path("static/index.html")
+    if html_path.exists(): return html_path.read_text()
+    return "<h1>Interface non trouvée</h1>"
+
+if __name__=="__main__":
+    port=int(os.getenv("FLASK_PORT",5000))
+    logger.info(f"🚀 http://0.0.0.0:{port}")
+    app.run(host="0.0.0.0", port=port, debug=False)

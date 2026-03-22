@@ -1,0 +1,196 @@
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>RAG Multimodal — Gemini Embedding 2</title><meta name="color-scheme" content="dark"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f172a;--card:#1e293b;--border:#334155;--accent:#f97316;--a10:rgba(249,115,22,.1);--title:#fff;--body:#cbd5e1;--muted:#94a3b8}
+body{background:var(--bg);color:var(--body);font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
+.layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+.sidebar{background:var(--card);border-right:1px solid var(--border);padding:20px 14px;display:flex;flex-direction:column;gap:18px}
+.main{display:flex;flex-direction:column;overflow:hidden}
+.logo{font-size:1.2rem;font-weight:800;color:var(--accent)}
+.logo small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-top:2px}
+.nav-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:700;margin-bottom:4px}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;border:none;background:transparent;color:var(--body);cursor:pointer;width:100%;text-align:left;font-size:13px;transition:background .2s,color .2s}
+.nav-btn:hover,.nav-btn.active{background:var(--a10);color:var(--accent)}
+.stats-box{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px}
+.sr{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px}
+.sv{color:var(--accent);font-weight:700}
+.topbar{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;height:54px;display:flex;align-items:center;gap:10px}
+.topbar h2{font-size:.95rem;font-weight:700;color:var(--title);flex:1}
+.badge{border:1px solid var(--accent);color:var(--accent);font-size:11px;padding:3px 9px;border-radius:20px}
+.panel{display:none;flex:1;overflow-y:auto;padding:24px;flex-direction:column;gap:18px}
+.panel.active{display:flex}
+.drop{border:2px dashed var(--border);border-radius:14px;padding:44px;text-align:center;cursor:pointer;transition:border-color .3s,background .3s}
+.drop:hover,.drop.drag{border-color:var(--accent);background:var(--a10)}
+.drop .ui{font-size:2.5rem;margin-bottom:10px}
+.drop h3{color:var(--title);margin-bottom:6px}
+.drop p{color:var(--muted);font-size:12px}
+.drop input{display:none}
+.pb{background:var(--border);border-radius:6px;height:8px;overflow:hidden;margin-top:6px}
+.pf{height:100%;background:linear-gradient(90deg,#f97316,#fb923c);border-radius:6px;transition:width .4s}
+.fg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.fc{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;transition:border-color .2s}
+.fc:hover{border-color:var(--accent)}
+.fi{font-size:1.8rem}.fn{font-size:12px;color:var(--title);font-weight:600;word-break:break-all}
+.fm{font-size:11px;color:var(--muted)}
+.fs{font-size:11px;padding:2px 7px;border-radius:10px;width:fit-content}
+.done{background:rgba(34,197,94,.15);color:#4ade80}.proc{background:rgba(249,115,22,.15);color:var(--accent)}
+.err{background:rgba(239,68,68,.15);color:#f87171}.unk{background:var(--border);color:var(--muted)}
+.bd{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;align-self:flex-end;padding:2px 5px;border-radius:4px;transition:color .2s}
+.bd:hover{color:#f87171}
+.qw{position:relative}
+.qi{width:100%;background:var(--card);border:2px solid var(--border);color:var(--title);border-radius:12px;padding:14px 56px 14px 18px;font-size:14px;outline:none;transition:border-color .3s;resize:none;font-family:inherit}
+.qi:focus{border-color:var(--accent)}
+.qs{position:absolute;right:10px;bottom:10px;background:var(--accent);border:none;border-radius:8px;padding:7px 12px;color:#fff;cursor:pointer;font-size:15px;transition:transform .2s}
+.qs:hover{transform:scale(1.05)}
+.ab{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;white-space:pre-wrap;color:var(--body);line-height:1.7}
+.sl{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px;font-weight:700}
+.si{background:var(--bg);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;margin-bottom:7px}
+.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:3px}
+.sn{font-size:12px;font-weight:700;color:var(--title)}.sc{font-size:11px;color:var(--accent);font-weight:700}
+.st{font-size:10px;color:var(--muted);text-transform:uppercase}.sx{font-size:12px;color:var(--muted);margin-top:3px}
+.ld{display:none;align-items:center;gap:9px;color:var(--accent)}.ld.show{display:flex}
+.sp{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast{position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid var(--border);border-left:4px solid var(--accent);padding:12px 18px;border-radius:10px;font-size:13px;color:var(--title);transform:translateY(80px);opacity:0;transition:all .3s;z-index:999;max-width:300px}
+#toast.show{transform:translateY(0);opacity:1}
+@media(max-width:768px){.layout{grid-template-columns:1fr}.sidebar{display:none}.panel{padding:14px}}
+</style></head><body>
+<div class="layout">
+<aside class="sidebar">
+  <div><div class="logo">RAG Multimodal<small>Gemini Embedding 2</small></div></div>
+  <div>
+    <div class="nav-label">Navigation</div>
+    <button class="nav-btn active" onclick="sp('upload')"><span>📁</span> Importer</button>
+    <button class="nav-btn" onclick="sp('files')"><span>🗂️</span> Fichiers indexés</button>
+    <button class="nav-btn" onclick="sp('query')"><span>💬</span> Interroger</button>
+  </div>
+  <div class="stats-box">
+    <div class="nav-label" style="margin-bottom:8px">Base vectorielle</div>
+    <div class="sr"><span>Vecteurs</span><span class="sv" id="sv">—</span></div>
+    <div class="sr"><span>Index</span><span class="sv" id="si2">—</span></div>
+    <div class="sr"><span>Dimension</span><span class="sv" id="sd">—</span></div>
+  </div>
+</aside>
+<div class="main">
+  <div class="topbar">
+    <h2 id="pt">Importer des fichiers</h2>
+    <span class="badge">Gemini Emb.2</span><span class="badge">Pinecone</span>
+  </div>
+  <div id="panel-upload" class="panel active">
+    <div class="drop" id="dz" onclick="document.getElementById('fi').click()">
+      <div class="ui">📂</div><h3>Dépose tes fichiers ici</h3>
+      <p>Vidéos · Images · PDF · Texte · Audio</p>
+      <p style="margin-top:6px;color:var(--accent)">Clic ou glisser-déposer</p>
+      <input type="file" id="fi" multiple accept=".pdf,.txt,.md,.jpg,.jpeg,.png,.gif,.webp,.mp4,.mov,.avi,.mp3,.wav"/>
+    </div>
+    <div id="ul" style="display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+  <div id="panel-files" class="panel">
+    <button onclick="lf()" style="align-self:flex-start;background:var(--accent);border:none;color:#fff;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px">🔄 Actualiser</button>
+    <div class="fg" id="fg"><p style="color:var(--muted)">Chargement…</p></div>
+  </div>
+  <div id="panel-query" class="panel">
+    <div class="qw">
+      <textarea class="qi" id="qi" rows="3" placeholder="Pose ta question… Ex : Quelle est la température maximale ?"></textarea>
+      <button class="qs" onclick="sq()" title="Envoyer">➤</button>
+    </div>
+    <div class="ld" id="ql"><div class="sp"></div><span>Recherche…</span></div>
+    <div id="aw" style="display:none;flex-direction:column;gap:14px">
+      <div class="ab" id="ab"></div>
+      <div><div class="sl">Sources</div><div id="sb"></div></div>
+    </div>
+  </div>
+</div>
+</div>
+<div id="toast"></div>
+<script>
+const PT={upload:'Importer des fichiers',files:'Fichiers indexés',query:'Interroger le RAG'};
+function sp(n){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('panel-'+n).classList.add('active');
+  document.getElementById('pt').textContent=PT[n];
+  const btns=document.querySelectorAll('.nav-btn');
+  btns[n==='upload'?0:n==='files'?1:2].classList.add('active');
+  if(n==='files')lf();
+}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
+async function ls(){try{const r=await fetch('/api/stats'),d=await r.json();document.getElementById('sv').textContent=d.total_vectors??'—';document.getElementById('si2').textContent=d.index_name??'—';document.getElementById('sd').textContent=d.dimension??'—'}catch{}}
+const dz=document.getElementById('dz'),fi=document.getElementById('fi');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');[...e.dataTransfer.files].forEach(uf)});
+fi.addEventListener('change',()=>[...fi.files].forEach(uf));
+async function uf(f){
+  const ul=document.getElementById('ul'),id='u'+Date.now()+Math.random().toString(36).slice(2);
+  const c=document.createElement('div');c.id=id;
+  c.style.cssText='background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 16px';
+  c.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-size:13px;color:var(--title);font-weight:600">${f.name}</span><span style="font-size:11px;color:var(--muted)">${(f.size/1024).toFixed(1)}KB</span></div><div style="font-size:12px;color:var(--accent);margin-bottom:5px" id="${id}s">Upload…</div><div class="pb"><div class="pf" id="${id}b" style="width:20%"></div></div>`;
+  ul.prepend(c);
+  const fd=new FormData();fd.append('file',f);
+  try{
+    const r=await fetch('/api/upload',{method:'POST',body:fd});
+    const d=await r.json();if(!r.ok)throw new Error(d.error);
+    document.getElementById(id+'s').textContent='⚙️ Ingestion…';
+    document.getElementById(id+'b').style.width='50%';
+    poll(f.name,id);toast('📤 '+f.name+' uploadé !');
+  }catch(e){
+    document.getElementById(id+'s').textContent='❌ '+e.message;
+    document.getElementById(id+'s').style.color='#f87171';
+    document.getElementById(id+'b').style.background='#f87171';
+    document.getElementById(id+'b').style.width='100%';
+  }
+}
+function poll(name,id){
+  const iv=setInterval(async()=>{
+    try{
+      const r=await fetch('/api/ingestion-status/'+encodeURIComponent(name)),d=await r.json();
+      const se=document.getElementById(id+'s'),be=document.getElementById(id+'b');
+      if(d.status==='processing'){const p=d.total>0?Math.round(d.progress/d.total*100):50;if(se)se.textContent=`⚙️ ${d.progress}/${d.total} chunks`;if(be)be.style.width=p+'%'}
+      else if(d.status==='done'){clearInterval(iv);if(se){se.textContent='✅ Indexé';se.style.color='#4ade80'}if(be)be.style.width='100%';ls();toast('✅ '+name+' indexé !')}
+      else if(d.status==='error'){clearInterval(iv);if(se){se.textContent='❌ '+d.error;se.style.color='#f87171'}}
+    }catch{clearInterval(iv)}
+  },1500);
+}
+const ICONS={pdf:'📄',txt:'📝',md:'📝',csv:'📊',mp4:'🎬',mov:'🎬',avi:'🎬',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',mp3:'🎵',wav:'🎵'};
+async function lf(){
+  const g=document.getElementById('fg');g.innerHTML='<p style="color:var(--muted)">Chargement…</p>';
+  try{
+    const r=await fetch('/api/files'),d=await r.json();
+    if(!d.files.length){g.innerHTML='<p style="color:var(--muted)">Aucun fichier.</p>';return}
+    g.innerHTML='';
+    d.files.forEach(f=>{
+      const ext=f.ext.replace('.',''),ic=ICONS[ext]||'📁';
+      const sc=f.status==='done'?'done':f.status==='processing'?'proc':f.status==='error'?'err':'unk';
+      const sl=f.status==='done'?'✅ Indexé':f.status==='processing'?'⚙️ En cours':f.status==='error'?'❌ Erreur':'⏳';
+      const c=document.createElement('div');c.className='fc';
+      c.innerHTML=`<div style="display:flex;justify-content:space-between"><span class="fi">${ic}</span><button class="bd" onclick="del('${f.name}')">🗑️</button></div><div class="fn">${f.name}</div><div class="fm">${f.folder} · ${f.size_kb}KB</div><div class="fs ${sc}">${sl}</div>`;
+      g.appendChild(c);
+    });
+  }catch{g.innerHTML='<p style="color:#f87171">Erreur.</p>'}
+}
+async function del(n){
+  if(!confirm('Supprimer "'+n+'" ?'))return;
+  const r=await fetch('/api/delete/'+encodeURIComponent(n),{method:'DELETE'}),d=await r.json();
+  toast(d.message||d.error);lf();ls();
+}
+document.getElementById('qi').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sq()}});
+async function sq(){
+  const q=document.getElementById('qi').value.trim();if(!q)return;
+  document.getElementById('ql').classList.add('show');document.getElementById('aw').style.display='none';
+  try{
+    const r=await fetch('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})}),d=await r.json();
+    document.getElementById('ab').textContent=d.answer||'Aucune réponse.';
+    const sb=document.getElementById('sb');sb.innerHTML='';
+    (d.sources||[]).forEach(s=>{
+      const i=document.createElement('div');i.className='si';
+      i.innerHTML=`<div class="sh"><span class="sn">📎 ${s.source}</span><span class="sc">${s.score}</span></div><div class="st">${s.source_type}${s.timestamp?' @ '+s.timestamp:''}</div><div class="sx">${s.text}</div>`;
+      sb.appendChild(i);
+    });
+    document.getElementById('aw').style.display='flex';
+  }catch(e){document.getElementById('ab').textContent='Erreur : '+e.message;document.getElementById('aw').style.display='flex'}
+  finally{document.getElementById('ql').classList.remove('show')}
+}
+ls();setInterval(ls,30000);
+</script></body></html>
