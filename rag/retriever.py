@@ -61,6 +61,8 @@ def answer_question(question: str, top_k: int = 5,
         lbl = f"[{m.get('source_type','?').upper()}] {m.get('source','?')}{' @ '+ts if ts else ''} (score:{r['score']})"
         parts.append(f"{lbl}\n{m.get('text','')}")
         sources.append({"source":m.get("source","?"),"source_type":m.get("source_type","?"),
+                        "title":m.get("article", m.get("source","?")),
+                        "url":m.get("url",""),
                         "score":r["score"],"text":m.get("text","")[:300],
                         "timestamp":ts,"vector_id":r["id"],
                         "owner":m.get("uploaded_by","—")})
