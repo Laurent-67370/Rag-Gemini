@@ -333,6 +333,32 @@ def public_query():
     result["response"] = result.get("answer", "")  # alias compatibilité widget
     return jsonify(result)
 
+@app.route("/api/public-query", methods=["POST", "OPTIONS"])
+def api_public_query():
+    """Endpoint du plugin WordPress 'RAG Gemini Chat' (sans clé API).
+    Protégé par un rate limit simple par IP pour limiter l'abus."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    import time
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    now = time.time()
+    hist = _public_rl.setdefault(ip, [])
+    hist[:] = [t for t in hist if now - t < 60]
+    if len(hist) >= 10:
+        return jsonify({"error": "Trop de requêtes, patiente une minute."}), 429
+    hist.append(now)
+    d = request.get_json(silent=True) or {}
+    q = d.get("question", "").strip()[:500]
+    if not q:
+        return jsonify({"error": "Question vide"}), 400
+    top_k = min(int(d.get("n_results", 5) or 5), 8)
+    from rag.retriever import answer_question
+    result = answer_question(q, top_k=top_k)
+    result["response"] = result.get("answer", "")
+    return jsonify(result)
+
+_public_rl: dict = {}
+
 @app.route("/")
 def index():
     if not session.get("user"): return redirect("/login")
