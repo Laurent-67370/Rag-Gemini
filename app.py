@@ -285,6 +285,31 @@ def preview_file(folder,filename):
     if not folder_path: return jsonify({"error":"Dossier invalide"}),404
     return send_from_directory(str(folder_path),filename)
 
+# ── ENDPOINT PUBLIC (widget blog lhusser.fr) ─────────────────────
+RAG_PUBLIC_API_KEY = os.getenv("RAG_PUBLIC_API_KEY", "")
+
+@app.route("/health")
+def public_health():
+    return jsonify({"status": "ok", "service": "rag-gemini"})
+
+@app.route("/query", methods=["POST", "OPTIONS"])
+def public_query():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    if not RAG_PUBLIC_API_KEY:
+        return jsonify({"error": "Endpoint public désactivé (RAG_PUBLIC_API_KEY manquant)"}), 503
+    if request.headers.get("x-api-key", "") != RAG_PUBLIC_API_KEY:
+        return jsonify({"error": "Clé API invalide"}), 401
+    d = request.get_json(silent=True) or {}
+    q = d.get("question", "").strip()
+    if not q:
+        return jsonify({"error": "Question vide"}), 400
+    top_k = min(int(d.get("n_results", 5) or 5), 10)
+    from rag.retriever import answer_question
+    result = answer_question(q, top_k=top_k)
+    result["response"] = result.get("answer", "")  # alias compatibilité widget
+    return jsonify(result)
+
 @app.route("/")
 def index():
     if not session.get("user"): return redirect("/login")
