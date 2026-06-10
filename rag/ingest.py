@@ -63,8 +63,72 @@ def process_audio(fp):
 def process_text(fp):
     src=Path(fp).name
     with open(fp,"r",encoding="utf-8",errors="ignore") as f: txt=f.read()
+    # Détection auto d'un export WordPress (WXR) sauvegardé en .txt
+    if "wordpress.org/export" in txt[:3000]:
+        yield from process_wordpress_xml(fp); return
     for i,c in enumerate(chunk_text(txt)):
         yield {"type":"text","content":c,"metadata":{"source":src,"source_type":"text","chunk":i,"text":c}}
+
+# ── WordPress WXR (export XML) ───────────────────────────────────
+WXR_NS={"content":"http://purl.org/rss/1.0/modules/content/",
+        "wp":"http://wordpress.org/export/1.2/",
+        "excerpt":"http://wordpress.org/export/1.2/excerpt/",
+        "dc":"http://purl.org/dc/elements/1.1/"}
+
+def _html_to_text(html_str):
+    """Convertit le HTML d'un article WordPress en texte brut (stdlib uniquement)."""
+    from html.parser import HTMLParser
+    import re
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.parts=[]; self.skip=0
+        def handle_starttag(self,tag,attrs):
+            if tag in ("script","style"): self.skip+=1
+            elif tag in ("p","br","div","li","h1","h2","h3","h4","h5","h6","tr","blockquote","figcaption"):
+                self.parts.append("\n")
+        def handle_endtag(self,tag):
+            if tag in ("script","style") and self.skip>0: self.skip-=1
+        def handle_data(self,data):
+            if not self.skip: self.parts.append(data)
+    # Supprimer les commentaires de blocs Gutenberg <!-- wp:... -->
+    html_str=re.sub(r"<!--.*?-->","",html_str,flags=re.S)
+    p=_P(); p.feed(html_str)
+    txt="".join(p.parts)
+    txt=re.sub(r"[ \t]+"," ",txt)
+    txt=re.sub(r"\n{3,}","\n\n",txt)
+    return txt.strip()
+
+def process_wordpress_xml(fp):
+    """Parse un export WordPress (WXR) et indexe les articles publiés."""
+    import xml.etree.ElementTree as ET
+    src=Path(fp).name
+    try:
+        tree=ET.parse(fp)
+    except ET.ParseError as e:
+        logger.error(f"XML invalide : {e}"); return
+    nb=0
+    for item in tree.getroot().iter("item"):
+        post_type=(item.findtext("wp:post_type",default="",namespaces=WXR_NS) or "").strip()
+        post_status=(item.findtext("wp:status",default="",namespaces=WXR_NS) or "").strip()
+        if post_type!="post" or post_status!="publish": continue
+        title=(item.findtext("title") or "Sans titre").strip()
+        link=(item.findtext("link") or "").strip()
+        date=(item.findtext("wp:post_date",default="",namespaces=WXR_NS) or "").strip()[:10]
+        cats=[c.text.strip() for c in item.findall("category")
+              if c.text and c.get("domain") in ("category","post_tag")]
+        raw=item.findtext("content:encoded",default="",namespaces=WXR_NS) or ""
+        body=_html_to_text(raw)
+        if not body: continue
+        header=f"Article : {title}\nDate : {date}\nURL : {link}\n"
+        if cats: header+=f"Tags : {', '.join(cats[:10])}\n"
+        for i,c in enumerate(chunk_text(body)):
+            txt=header+"\n"+c if i==0 else f"[{title}] "+c
+            yield {"type":"text","content":txt,
+                   "metadata":{"source":src,"source_type":"wordpress_post","article":title,
+                               "url":link,"date":date,"chunk":i,"text":txt}}
+        nb+=1
+    logger.info(f"WXR : {nb} articles publiés extraits de {src}")
 
 def process_file(fp):
     ext=Path(fp).suffix.lower()
@@ -73,6 +137,7 @@ def process_file(fp):
     elif ext in {".mp4",".mov",".avi",".mkv",".webm"}: yield from process_video(fp)
     elif ext in {".mp3",".wav",".m4a",".ogg",".flac"}: yield from process_audio(fp)
     elif ext in {".txt",".md",".csv"}: yield from process_text(fp)
+    elif ext==".xml": yield from process_wordpress_xml(fp)
     else: logger.warning(f"Format non supporté : {ext}")
 
 def _whisper(fp):
