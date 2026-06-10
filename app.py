@@ -354,6 +354,13 @@ def api_public_query():
     top_k = min(int(d.get("n_results", 5) or 5), 8)
     from rag.retriever import answer_question
     result = answer_question(q, top_k=top_k)
+    # Déduplication par article (les chunks d'un même article = une seule puce)
+    seen = set(); uniq = []
+    for s in result.get("sources", []):
+        k = s.get("url") or s.get("title") or s.get("source")
+        if k in seen: continue
+        seen.add(k); uniq.append(s)
+    result["sources"] = uniq
     # Le widget affiche le champ "source" : on y met le titre de l'article
     for s in result.get("sources", []):
         if s.get("title") and s.get("url"):
