@@ -354,6 +354,10 @@ def api_public_query():
     top_k = min(int(d.get("n_results", 5) or 5), 8)
     from rag.retriever import answer_question
     result = answer_question(q, top_k=top_k)
+    # Le widget affiche le champ "source" : on y met le titre de l'article
+    for s in result.get("sources", []):
+        if s.get("title") and s.get("url"):
+            s["source"] = s["title"]
     result["response"] = result.get("answer", "")
     return jsonify(result)
 
