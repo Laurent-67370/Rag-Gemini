@@ -288,9 +288,24 @@ def preview_file(folder,filename):
 # ── ENDPOINT PUBLIC (widget blog lhusser.fr) ─────────────────────
 RAG_PUBLIC_API_KEY = os.getenv("RAG_PUBLIC_API_KEY", "")
 
+def _check_public_key():
+    return RAG_PUBLIC_API_KEY and request.headers.get("x-api-key", "") == RAG_PUBLIC_API_KEY
+
 @app.route("/health")
 def public_health():
     return jsonify({"status": "ok", "service": "rag-gemini"})
+
+@app.route("/stats", methods=["GET"])
+def public_stats():
+    """Stats publiques pour le widget (compteur + statut en ligne)."""
+    if not _check_public_key():
+        return jsonify({"error": "Clé API invalide"}), 401
+    try:
+        from rag.indexer import get_index
+        total = get_index().describe_index_stats().get("total_vector_count", 0)
+    except Exception:
+        total = 0
+    return jsonify({"articles_indexed": total, "vectors": total, "status": "ok"})
 
 @app.route("/query", methods=["POST", "OPTIONS"])
 def public_query():
@@ -298,15 +313,23 @@ def public_query():
         return ("", 204)
     if not RAG_PUBLIC_API_KEY:
         return jsonify({"error": "Endpoint public désactivé (RAG_PUBLIC_API_KEY manquant)"}), 503
-    if request.headers.get("x-api-key", "") != RAG_PUBLIC_API_KEY:
+    if not _check_public_key():
         return jsonify({"error": "Clé API invalide"}), 401
     d = request.get_json(silent=True) or {}
     q = d.get("question", "").strip()
     if not q:
         return jsonify({"error": "Question vide"}), 400
+    mode = d.get("mode", "chat")
     top_k = min(int(d.get("n_results", 5) or 5), 10)
     from rag.retriever import answer_question
     result = answer_question(q, top_k=top_k)
+    if mode == "search":
+        # Mode recherche : liste de résultats sans appel LLM affiché
+        return jsonify({"results": [{"title": s.get("title", s.get("source", "?")),
+                                     "url": s.get("url", ""),
+                                     "excerpt": s.get("text", ""),
+                                     "score": s.get("score", 0)}
+                                    for s in result.get("sources", [])]})
     result["response"] = result.get("answer", "")  # alias compatibilité widget
     return jsonify(result)
 
