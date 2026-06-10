@@ -58,7 +58,11 @@ def answer_question(question: str, top_k: int = 5,
     parts = []; sources = []
     for r in results:
         m = r["metadata"]; ts = m.get("timestamp","")
-        lbl = f"[{m.get('source_type','?').upper()}] {m.get('source','?')}{' @ '+ts if ts else ''} (score:{r['score']})"
+        art = m.get("article",""); url = m.get("url","")
+        if art:
+            lbl = f"[ARTICLE] « {art} » — {url} (score:{r['score']})"
+        else:
+            lbl = f"[{m.get('source_type','?').upper()}] {m.get('source','?')}{' @ '+ts if ts else ''} (score:{r['score']})"
         parts.append(f"{lbl}\n{m.get('text','')}")
         sources.append({"source":m.get("source","?"),"source_type":m.get("source_type","?"),
                         "title":m.get("article", m.get("source","?")),
@@ -68,6 +72,8 @@ def answer_question(question: str, top_k: int = 5,
                         "owner":m.get("uploaded_by","—")})
 
     ctx = "\n\n---\n\n".join(parts)
-    sys = "Tu es un assistant RAG multimodal. Réponds uniquement depuis le contexte fourni. Cite toujours la source. Réponds en français."
+    sys = ("Tu es l'assistant du blog lhusser.fr. Réponds uniquement depuis le contexte fourni, en français. "
+           "Quand la source est un article du blog (étiquette [ARTICLE]), cite-le dans la section Sources "
+           "sous la forme : titre de l'article suivi de son lien URL. Ne mentionne jamais les noms de fichiers XML.")
     usr = f"CONTEXTE :\n{ctx}\n\nQUESTION : {question}"
     return {"question": question, "answer": call_llm(sys, usr), "sources": sources}
