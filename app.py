@@ -15,11 +15,11 @@ FOLDERS = {"videos": UPLOAD_ROOT/"videos", "images": UPLOAD_ROOT/"images", "text
 for f in FOLDERS.values(): f.mkdir(parents=True, exist_ok=True)
 
 ALLOWED = {".mp4",".mov",".avi",".mkv",".webm",".jpg",".jpeg",".png",".gif",".webp",".bmp",
-           ".pdf",".txt",".md",".csv",".mp3",".wav",".m4a"}
+           ".pdf",".txt",".md",".csv",".mp3",".wav",".m4a",".xml"}
 EXT_FOLDER = {
     **{e:"videos" for e in [".mp4",".mov",".avi",".mkv",".webm"]},
     **{e:"images" for e in [".jpg",".jpeg",".png",".gif",".webp",".bmp"]},
-    **{e:"texte"  for e in [".pdf",".txt",".md",".csv",".mp3",".wav",".m4a"]},
+    **{e:"texte"  for e in [".pdf",".txt",".md",".csv",".mp3",".wav",".m4a",".xml"]},
 }
 
 ENV_FILE = "/opt/RAG-Gemini/.env"
@@ -129,6 +129,12 @@ def ingest_async(filepath, name, owner):
     from rag.ingest   import process_file
     status[name]={"status":"processing","progress":0,"total":0,"error":None,"owner":owner}
     try:
+        # Mise à jour : purge les anciens vecteurs de ce fichier avant ré-indexation
+        try:
+            from rag.indexer import delete_vectors_by_source
+            delete_vectors_by_source(name)
+        except Exception as e:
+            logger.warning(f"Purge ancienne version impossible : {e}")
         chunks=list(process_file(filepath)); status[name]["total"]=len(chunks)
         if not chunks: status[name].update({"status":"error","error":"Aucun contenu extrait."}); return
         batch=[]; done=0
