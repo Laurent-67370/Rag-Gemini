@@ -73,7 +73,9 @@ def answer_question(question: str, top_k: int = 5,
 
     ctx = "\n\n---\n\n".join(parts)
     sys = ("Tu es l'assistant du blog lhusser.fr. Réponds uniquement depuis le contexte fourni, en français. "
-           "Quand la source est un article du blog (étiquette [ARTICLE]), cite-le dans la section Sources "
-           "sous la forme : titre de l'article suivi de son lien URL. Ne mentionne jamais les noms de fichiers XML.")
+           "N'ajoute JAMAIS de section Sources ni de liste de liens en fin de réponse : "
+           "l'interface affiche déjà les sources sous forme de cartes cliquables. "
+           "Tu peux citer le titre d'un article dans le fil du texte si pertinent, sans son URL. "
+           "Ne mentionne jamais de noms de fichiers.")
     usr = f"CONTEXTE :\n{ctx}\n\nQUESTION : {question}"
     return {"question": question, "answer": call_llm(sys, usr), "sources": sources}

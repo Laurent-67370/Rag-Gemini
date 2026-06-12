@@ -47,7 +47,11 @@ RAG-Gemini/
 │   ├── embedder.py         ← Gemini Embedding 2 (texte + images + bytes)
 │   ├── indexer.py          ← Pinecone (upsert, query, stats, delete)
 │   ├── ingest.py           ← Traitement PDF, image, vidéo, audio, texte
+│   ├── wp_ingest.py        ← Ingestion WordPress via API REST (lhusser.fr)
 │   └── retriever.py        ← Pipeline query → Pinecone → Gemini → réponse
+├── wordpress-plugin/
+│   └── rag-gemini-chat/    ← Plugin WP : widget de chat public (v2.2.0)
+├── deploy/                 ← Scripts d'installation/maintenance du VPS
 ├── static/
 │   ├── index.html          ← Interface principale (dark theme, mobile)
 │   └── login.html          ← Page de connexion
@@ -215,6 +219,60 @@ python3 /root/backup-vectors.py cron
 | `GET` | `/api/stats` | Statistiques Pinecone |
 | `GET` | `/api/vectors` | Vecteurs pour visualisation |
 | `GET/POST` | `/api/config` | Configuration LLM |
+
+**Endpoints publics (widget du blog)** :
+
+| Méthode | Route | Description |
+|---|---|---|
+| `POST` | `/api/public-query` | Question du widget — rate limit 5/min · 30/jour/IP · 400/jour global, filtre blog-only |
+| `GET` | `/api/public-articles` | Liste des articles du blog (compteur, suggestions, recherche) — cache 1 h |
+| `POST` | `/api/ingest-article` | (Re)indexe un article par id/url — secret `RAG_INGEST_SECRET` |
+| `POST` | `/api/sync-latest` | Indexe les derniers articles manquants — appelé par cron */15 min |
+
+---
+
+## 🤖 Assistant public du blog (widget WordPress)
+
+Le dossier `wordpress-plugin/rag-gemini-chat/` contient le plugin WP qui affiche
+le chat sur [lhusser.fr](https://lhusser.fr) :
+
+- 💬 Réponses RAG avec effet machine à écrire, mémoire localStorage (30 messages)
+- 📎 Sources en cartes cliquables (dédupliquées par article)
+- 👍👎 Feedback + 📋 copier + 📄 **export PDF** (réponse seule ou conversation complète) à la charte du blog
+- 📱 Plein écran mobile, chips scrollables, accessibilité ARIA, `prefers-reduced-motion`
+- 🛡️ Assets au **nom de fichier versionné** (`rag-widget-X.Y.Z.js`) : insensible à tous les caches (LiteSpeed, CDN, navigateur)
+
+Installation : zipper `rag-gemini-chat/` → WP Admin → Extensions → Téléverser.
+
+---
+
+## 🔄 Auto-synchronisation des articles
+
+L'index Pinecone se met à jour **sans intervention** :
+
+1. Ingestion initiale : `deploy/upgrade-rag-sync.sh` puis `python3 /root/reingest_wp.py`
+   (lecture directe de l'API REST WordPress, extraction 100 % du HTML custom,
+   IDs déterministes `wp-{post_id}-{chunk}`)
+2. Cron toutes les 15 min → `/api/sync-latest` → seuls les articles **absents** de
+   l'index sont ingérés (zéro coût si rien de nouveau) : `deploy/add-auto-sync.sh`
+3. Titres modifiés : `deploy/reindex-titres.sh` compare WP ↔ Pinecone et ne
+   réindexe que les articles dont le titre a changé
+
+---
+
+## 📝 Changelog
+
+### v2.2.0 (12 juin 2026)
+- 📄 Export PDF de la **conversation complète** (bouton dans les onglets) en plus de l'export par réponse
+- 🎨 Mise en page PDF à la charte du blog (bandeau #0f172a, Syne/Space Mono, accent #f97316)
+- 🛡️ Assets du widget au nom versionné — contournement définitif des caches serveur
+- 🔄 `/api/sync-latest` + cron 15 min : auto-indexation des nouveaux articles
+- 🔢 `/api/public-articles` : compteur exact, suggestions réelles, onglet Recherche fonctionnel
+- 🧠 Réingestion complète des 429 articles via l'API REST (100 % du contenu, 5 600 chunks, purge de 22 950 vecteurs redondants)
+- 🔐 Rate limiting 3 niveaux (5/min · 30/jour/IP · 400/jour global) sur les 2 endpoints publics
+- 🔐 Filtre `source=lhusser.fr` : les fichiers privés uploadés sont invisibles du chat public
+- 💬 Le LLM ne génère plus de section « Sources » texte (cartes cliquables uniquement)
+- 🐛 Widget : plein écran mobile, FAB masqué à l'ouverture, sources dédupliquées, fallback compteur, feedback 👍👎, historique persistant
 
 ---
 
